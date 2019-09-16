@@ -14379,3 +14379,6 @@ Flame.items={
     ["“麻雀”短枪BKP"]="BKP \"Sparrow\" Smallbore",
     ["“偏激者”BKP 42"]="BKP 42 \"Ultra\""
 }
+for k,v in pairs (Flame.items) do 
+    Flame.items[k]="|cFF00FFFF["..v.."]|r"
+end
