@@ -3,5 +3,4 @@
 !/.pkgmeta-classic
 !/README.md
 !/LICENSE
-!/Flame/
-/Flame/libs/**
+!Flame/
