@@ -12,7 +12,6 @@ local configForDeflate = {level = 9}
 -- Declare Addon
 Flame = AceAddon:NewAddon(Flame, "Flame", "AceEvent-3.0", "AceBucket-3.0", "AceConsole-3.0")
 
-
 -- [WeakAuras2] Start
 -- @ WeakAuras/Transmission.lua
 local function recurseStringify(data, level, lines)
