@@ -7,3 +7,4 @@
 !Flame
 !Flame/*
 Flame/libs/*
+!Flame/libs/libs.xml
