@@ -7,3 +7,5 @@
 !Flame/*
 Flame/libs/*
 !Flame/libs/libs.xml
+!Flame/libs/LibDeflate/
+!Flame/libs/LibDeflate/*
