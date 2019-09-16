@@ -1,0 +1,15 @@
+## Interface: 11302
+## Title : |cfffb4f4fFlame|r
+## Notes: Flame addon
+## Version: 0.1
+## SavedVariables: FlameDB
+## OptionalDeps: Ace3, LibCompress, LibDeflate
+
+Libs\libs.xml
+
+Flame.lua
+Dictionary.lua
+Quests.lua
+Items.lua
+Creatures.lua
+Misc.lua
