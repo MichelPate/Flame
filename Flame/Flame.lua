@@ -51,7 +51,6 @@ local function SerializeTable(data)
     tinsert(lines, "}")
     return table.concat(lines, "\n")
 end
-
 local function TableToString(inTable, forChat)
     local serialized = Serializer:Serialize(inTable)
     local compressed = LibDeflate:CompressDeflate(serialized, configForDeflate)
@@ -157,11 +156,13 @@ function Flame:Translate (text)
     if self.db.profile.chat then
         local delim = {",", ";"}
         local p = "[^"..table.concat(delim).."]+"
-
         -- Check if there is any Chinese Character in the text
+
         if strfind(text, "[\227-\237]") then
             -- Convert input str into a table
             local textTbl = UTF8ToCharArray(text)
+
+            -- Pinyin
             if Flame.db.profile.pinyin then
                 local pinyin = ''
                 for k,v in pairs(textTbl) do
@@ -176,15 +177,52 @@ function Flame:Translate (text)
                 end
                 print (pinyin)
             end
+
             local textSize = 0
             for _,v in pairs(textTbl) do textSize=textSize+1 end
             if textSize<=Flame.db.profile.maxChar then
+
+                -- Chunk Alphabetical Letters into sequence
+                local last = false
+                local idxRmv = 0
+                local word = ''
+                for i, v in pairs (textTbl) do
+                    if strfind(v, "[^a-zA-Z]")==nil then
+                        if i == #textTbl then
+                            word=word..textTbl[i]
+                            textTbl[i] = word 
+                        else
+                            if last == false then
+                                idxRmv = i
+                            end
+                            word=word..textTbl[i] 
+                            textTbl[i] = nil
+                            last=true
+                        end
+                    else 
+                        if last then
+                            textTbl[i-1] = word 
+                            word = ''
+                        end
+                        last=false
+                    end
+                end
+
+                local textTblOrder = {}
+                for k, v in pairs (textTbl) do
+                    table.insert(textTblOrder, v)
+                end
+                textTbl = textTblOrder
+
                 for i, cn in pairs(textTbl) do
                     -- Convert cn keys into a table
                     local subTbl = Flame.indexTable[cn]
                     if subTbl~=nil then
                         for cnK, t in pairs(subTbl) do
-                            local cnTbl = UTF8ToCharArray(cnK)
+                            local cnTbl = {cnK}
+                            if strfind(cnK, "[\227-\237]") then
+                                cnTbl = UTF8ToCharArray(cnK)
+                            end
                             local sizeCnTbl = table.getn(cnTbl)-1
                             local t = {}
                             for y in range(i,i+sizeCnTbl) do
@@ -477,6 +515,9 @@ function Flame:OnInitialize()
             chat = true,
             pinyin = true,
             maxChar = 255,
+            questsColor = {1,1,0,1},
+            creaturesColor = {0,1,1,1},
+            --
             yell = true,
             whisper = true,
             say = true,
@@ -520,6 +561,20 @@ function Flame:OnInitialize()
                         step = 5,
                         set = function(info,val) Flame.db.profile.maxChar = val end,
                         get = function(info) return Flame.db.profile.maxChar end
+                    },
+                    questsColor = {
+                        name = "Quest color",
+                        desc = "Colorize quest's name in the chat",
+                        type = "color",
+                        set = function(info,r,g,b,a) Flame.db.profile.questsColor = {r,g,b,a} end,
+                        get = function(info) return unpack(Flame.db.profile.questsColor) end
+                    },
+                    creaturesColor = {
+                        name = "Creature color",
+                        desc = "Colorize creature's name in the chat",
+                        type = "color",
+                        set = function(info,r,g,b,a) Flame.db.profile.creaturesColor = {r,g,b,a} end,
+                        get = function(info) return unpack(Flame.db.profile.creaturesColor) end
                     },
                 },
             },
@@ -589,6 +644,14 @@ function Flame:OnInitialize()
 end
 
 function Flame:ADDON_LOADED ()
+        for _, t in pairs ({'quests', 'creatures'}) do
+            for k,v in pairs (Flame[t]) do 
+                local color = Flame.db.profile[t..'Color']
+                local hex = format("\124cff%.2x%.2x%.2x", color[1]*255, color[2]*255, color[3]*255) 
+                Flame[t][k]=hex.."["..v.."]|r"
+            end
+        end
+
         -- Build a single dict
         local sumTables = {}
         local sources = {Flame.db.profile.dictionary,Flame.quests,Flame.items, Flame.creatures, Flame.misc}--

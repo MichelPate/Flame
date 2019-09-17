@@ -3178,6 +3178,3 @@ Flame.quests = {
     ["神圣巫师之油"]="Blessed Wizard Oil",
     ["银色黎明战袍"]="Tabard of the Argent Dawn",
 }
-for k,v in pairs (Flame.quests) do 
-    Flame.quests[k]="|cFFFFFF00["..v.."]|r"
-end
