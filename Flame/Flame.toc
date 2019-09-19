@@ -12,4 +12,5 @@ Dictionary.lua
 Quests.lua
 Items.lua
 Creatures.lua
+Locations.lua
 Misc.lua

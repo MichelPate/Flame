@@ -4,13 +4,25 @@ local _, Flame = ...
 local AceAddon = LibStub("AceAddon-3.0");
 local AceGUI = LibStub("AceGUI-3.0");
 local Serializer = LibStub:GetLibrary("AceSerializer-3.0");
-
 local Compresser = LibStub:GetLibrary("LibCompress")
 local LibDeflate = LibStub:GetLibrary("LibDeflate")
 local configForDeflate = {level = 9}
 
 -- Declare Addon
 Flame = AceAddon:NewAddon(Flame, "Flame", "AceEvent-3.0", "AceBucket-3.0", "AceConsole-3.0")
+Flame.statusLFGWindow = false
+Flame.messageHistory = {}
+local classesCN = {   
+    ["paladin"] = "QS",
+    ["druid"] = "XD",
+    ["hunter"] = "LR",
+    ["mage"] = "FS",
+    ["rogue"] = "DZ",
+    ["shaman"] = "SM",
+    ["warlock"] = "SS",
+    ["warrior"] = "ZS",
+    ["priest"] = "MS",
+}
 
 -- [WeakAuras2] Start
 -- @ WeakAuras/Transmission.lua
@@ -110,7 +122,7 @@ local function range ( from , to )
 end
 
 -- Credit @ingemar https://forums.coronalabs.com/topic/42019-split-utf-8-string-word-with-foreign-characters-to-letters/
-local UTF8ToCharArray = function(str)
+local UTF8ToArray = function(str)
     local charArray = {};
     local iStart = 0;
     local strLen = str:len();
@@ -151,8 +163,58 @@ local UTF8ToCharArray = function(str)
     return charArray;
 end
 
+function Flame:ToPinyin(tbl)
+    local pinyin = ''
+    for k,v in pairs(tbl) do
+        if Flame.dictionary[v]==nil then
+            pinyin=pinyin..v
+        else
+            local pin = Flame.dictionary[v][2]
+            if pin then
+                pinyin=pinyin.." "..pin.." "
+            end
+        end
+    end
+    return pinyin
+end
+
+function Flame:TranslateText (tbl, dict)
+    local changed = {}
+    for i, cn in pairs(tbl) do
+        local subTbl = Flame.indexTable[cn]
+        if subTbl~=nil then
+            for cnK, t in pairs(subTbl) do
+                local cnTbl = {cnK}
+                -- If cn characters
+                if strfind(cnK, "[\227-\237]") then
+                    -- Convert cn keys into a table
+                    cnTbl = UTF8ToArray(cnK)
+                end
+                local sizeCnTbl = table.getn(cnTbl)-1
+                local t = {}
+                for y in range(i,i+sizeCnTbl) do
+                    table.insert(t, tbl[y])
+                end
+                local cnKey = table.concat(t)
+                local enValue = dict[cn][cnKey]
+                if enValue~= nil then
+                    for y in range(i,i+sizeCnTbl) do
+                        table.remove(tbl, i)
+                    end
+                    table.insert(changed, enValue)
+                    table.insert(tbl, i, ' '..enValue..' ')
+                    break
+                end
+            end
+
+        end
+    end
+    return tbl, changed
+end
 -- MAIN FUNCTION
 function Flame:Translate (text)
+    local output = text
+    local outputChanged = ''
     if self.db.profile.chat then
         local delim = {",", ";"}
         local p = "[^"..table.concat(delim).."]+"
@@ -160,28 +222,18 @@ function Flame:Translate (text)
 
         if strfind(text, "[\227-\237]") then
             -- Convert input str into a table
-            local textTbl = UTF8ToCharArray(text)
+            local textTbl = UTF8ToArray(text)
 
             -- Pinyin
             if Flame.db.profile.pinyin then
-                local pinyin = ''
-                for k,v in pairs(textTbl) do
-                    if Flame.dictionary[v]==nil then
-                        pinyin=pinyin..v
-                    else
-                        local pin = Flame.dictionary[v][2]
-                        if pin then
-                            pinyin=pinyin.." "..pin.." "
-                        end
-                    end
-                end
+                local pinyin = Flame:ToPinyin(textTbl)
                 print (pinyin)
             end
-
+            -- Get message size
             local textSize = 0
             for _,v in pairs(textTbl) do textSize=textSize+1 end
+            -- Filter out message base on size
             if textSize<=Flame.db.profile.maxChar then
-
                 -- Chunk Alphabetical Letters into sequence
                 local last = false
                 local idxRmv = 0
@@ -207,43 +259,18 @@ function Flame:Translate (text)
                         last=false
                     end
                 end
-
+                -- Remove empty indexes and reorder table
                 local textTblOrder = {}
                 for k, v in pairs (textTbl) do
                     table.insert(textTblOrder, v)
                 end
                 textTbl = textTblOrder
 
-                for i, cn in pairs(textTbl) do
-                    -- Convert cn keys into a table
-                    local subTbl = Flame.indexTable[cn]
-                    if subTbl~=nil then
-                        for cnK, t in pairs(subTbl) do
-                            local cnTbl = {cnK}
-                            if strfind(cnK, "[\227-\237]") then
-                                cnTbl = UTF8ToCharArray(cnK)
-                            end
-                            local sizeCnTbl = table.getn(cnTbl)-1
-                            local t = {}
-                            for y in range(i,i+sizeCnTbl) do
-                                table.insert(t, textTbl[y])
-                            end
-                            local cnKey = table.concat(t)
-                            local enValue = Flame.indexTable[cn][cnKey]
-                            if enValue~= nil then
-                                for y in range(i,i+sizeCnTbl) do
-                                    table.remove(textTbl, i)
-                                end
-                                table.insert(textTbl, i, ' '..enValue..' ')
-                                break
-                            end
-                        end
+                local changed 
+                textTbl, changed = Flame:TranslateText (textTbl, Flame.indexTable)
+                outputChanged = table.concat(changed, ' '):gsub(" +"," ")
 
-                    end
-                end
-
-                local output = ''
-
+                output = ''
                 for _, c in pairs(textTbl) do
                     if Flame.dictionary[c]==nil then
                         output=output..c
@@ -257,14 +284,16 @@ function Flame:Translate (text)
                     end
                 end
                 output = output:gsub(" +"," ")
+                
                 print (output)
             end
         end
     end
+    return output, outputChanged
 end
 
 function Flame.HandleCmd (args)
-    local inputs = UTF8ToCharArray(args)
+    local inputs = UTF8ToArray(args)
     local w = ''
     local words = {}
     for k,v in pairs (inputs) do
@@ -295,7 +324,9 @@ function Flame.HandleCmd (args)
         elseif words[1]=='chat' then 
             Flame:Chat(words[2])
         elseif words[1]=='dict' then 
-            Flame:Dict()
+            Flame:DictWindow()
+        elseif words[1]=='lfg' then 
+            Flame:LFGWindow()
         elseif words[1]=='help' then 
             Flame:Help()
         end
@@ -304,110 +335,221 @@ function Flame.HandleCmd (args)
     end
 end
 
+function Flame:GetRoles () 
+    local roles = {}
+    local cnRoles = {['Tank']='坦克', ['Healer']='治疗', ['DPS']='DPS'}
+    for k,v in pairs(self.RoleCheckBoxesLFG:GetChecked()) do
+        local cnRole = cnRoles[v]
+        table.insert(roles, cnRole)
+    end
+    return roles
+end
+
+function Flame:WidgetTable (opt)
+    local f = AceGUI:Create("ScrollFrame")
+
+    f:SetLayout("Flow")
+    f.opt = opt or {}
+    if f.opt.parent then
+        f.opt.parent:AddChild(f)
+    end
+
+    f.rows = {}
+    
+    function f:AddRow (...)
+        local l = AceGUI:Create("SimpleGroup", {})
+        l:SetFullWidth(true) 
+        l:SetLayout('Flow')
+        l.widgets = self.opt.addFn(...)
+        for i,v in pairs(l.widgets) do
+            l:AddChild(v)
+        end
+        local s = #l.widgets+1
+        l.widgets[s]= AceGUI:Create("Button")
+        l.widgets[s]:SetText("x")
+        l.widgets[s]:SetWidth (20)
+        l.widgets[s]:SetCallback ("OnClick", function(s) l:ReleaseChildren(); self:DoLayout() end)
+        l:AddChild(l.widgets[s])
+
+        self:AddChild(l)
+        table.insert(f.rows, l)
+        return l
+    end
+
+    function f:GetRow (i)
+        return self.rows[i]
+    end
+
+    function f:GetRows ()
+        return self.rows
+    end
+
+    return f
+end
+
+function Flame:WidgetCheckboxGroup (tblArgs, opt)
+    local f = AceGUI:Create("SimpleGroup", {})
+    f.opt = opt or {}
+    f.tbtArgs = tblArgs or {}
+
+    f:SetFullWidth(true) 
+    f:SetLayout('Flow')
+    f.widgets = {}
+    
+    if f.opt.parent then
+        f.opt.parent:AddChild(f)
+    end
+
+    local s = 1/#f.tbtArgs
+    for i,r in pairs (f.tbtArgs) do
+        f.widgets[i] = AceGUI:Create("CheckBox")
+        f.widgets[i]:SetLabel(r)
+        f.widgets[i].labelText = r
+        f.widgets[i]:SetRelativeWidth (s)
+        f:AddChild(f.widgets[i])
+    end
+
+    function f:GetChecked ()
+        local d = {}
+        for _, w in pairs(self.widgets) do 
+            if w:GetValue() then
+                table.insert(d, w.labelText)
+            end
+        end 
+        return d
+    end
+    return f
+end
+
+function Flame:DictWindow()
+    local w = AceGUI:Create("Window")
+    
+    w:SetTitle("Flame - Dictionary")
+    w:SetCallback("OnClose", function(widget) AceGUI:Release(widget) end)
+    w:SetLayout("Flow")
+    w:SetHeight(600)
+    w:SetWidth(450)
+
+    local layout = AceGUI:Create("SimpleGroup")
+    layout:SetFullWidth(true)
+    layout:SetHeight(500)
+    layout:SetLayout("Fill")
+    w:AddChild(layout)
+
+    local buildDictRow = function (cn, en)
+        local l = {}
+        for i,v in pairs({cn, en}) do
+            l[i] = AceGUI:Create("EditBox")
+            l[i]:DisableButton(true)
+            l[i]:SetText(v)
+        end
+        l[1]:SetRelativeWidth (0.2)
+        l[2]:SetRelativeWidth(0.75)
+        return l
+    end
+    
+    local p = self:WidgetTable({addFn = buildDictRow, parent=layout})
+    for k, v in pairs(self.db.profile.dictionary) do p:AddRow(k,v) end
+
+    local btn = {}
+    local tblNames = {'Add', 'Save'} 
+    for _,n in pairs(tblNames) do
+        btn[n] = AceGUI:Create("Button")
+        btn[n]:SetText(n)
+        btn[n]:SetRelativeWidth(1/#tblNames)
+        w:AddChild(btn[n])
+    end
+    btn.Add:SetCallback ("OnClick", function(s) p:AddRow('', '') end)
+    btn.Save:SetCallback ("OnClick", 
+        function(s) 
+            for i, r in pairs(p:GetRows()) do
+                self:Add(r.widgets[1]:GetText(),r.widgets[2]:GetText(), false)
+            end
+        end
+    )
+    return w
+end
+
+function Flame:LFGWindow()
+    self.messageHistory = {}
+    self.statusLFGWindow = true
+    local w = AceGUI:Create("Window")
+    
+    w:SetTitle("Flame - LFG")
+    w:SetCallback("OnClose", function(widget) AceGUI:Release(widget); Flame.statusLFGWindow = false; end)
+    w:SetLayout("Flow")
+    w:SetHeight(700)
+    w:SetWidth(500)
+    
+    
+
+    local keywordsBox = AceGUI:Create("EditBox")
+    keywordsBox:SetLabel ('Keywords')
+    keywordsBox:SetText(self.db.profile.lfgkeywords)
+    keywordsBox:SetFullWidth(true)
+    keywordsBox:SetCallback("OnEnterPressed", function(self) self.db.profile.lfgkeywords = self:GetText() end)
+    w:AddChild(keywordsBox)
+
+    local channelRow = AceGUI:Create("SimpleGroup", {})
+    channelRow:SetFullWidth(true) 
+    channelRow:SetLayout('Flow')
+
+    local buttonJoinBF = AceGUI:Create("Button")
+    buttonJoinBF:SetText("Join World")
+    buttonJoinBF:SetWidth(150)
+    buttonJoinBF:SetCallback("OnClick", function (self) JoinChannelByName("大脚世界频道")  end)
+    channelRow:AddChild(buttonJoinBF)
+    local buttonLeaveBF = AceGUI:Create("Button")
+    buttonLeaveBF:SetText("Leave World")
+    buttonLeaveBF:SetWidth(150)
+    buttonLeaveBF:SetCallback("OnClick", function (self) LeaveChannelByName("大脚世界频道")  end)
+    channelRow:AddChild(buttonLeaveBF)
+
+    w:AddChild(channelRow)
+
+    local buildLFGRow = function (name, classe, keywords, onlyChanged)
+        local l = {}
+        local _, _, _, hex = GetClassColor(classe:upper())
+        if classe=='SHAMAN' then
+            hex = 'FF0070DE'
+        end
+        local args = {{0.2, "\124c"..hex..name.."\124r"}, {0.20, keywords}, {0.36, onlyChanged}}
+        for i, v in pairs(args) do
+            l[i] = AceGUI:Create("Label")
+            l[i]:SetRelativeWidth (v[1])
+            l[i]:SetText(v[2])
+        end
+        s = #l+1
+        l[s] = AceGUI:Create("Button")
+        l[s]:SetText("+")
+        l[s]:SetRelativeWidth (0.08)
+        l[s]:SetCallback("OnClick", function (self) SendChatMessage(Flame:CreateMsg (), "WHISPER", nil, name)  end)
+        return l
+    end
+
+    self.RoleCheckBoxesLFG = self:WidgetCheckboxGroup({'Tank', 'Healer', 'DPS'}, {parent=w})
+    local layout = AceGUI:Create("SimpleGroup")
+    layout:SetFullWidth(true)
+    layout:SetHeight(500)
+    layout:SetLayout("Fill")
+    w:AddChild(layout)
+    self.TableWidgetLFG = self:WidgetTable({addFn=buildLFGRow, parent=layout})
+end
+
+function Flame:CreateMsg ()
+    local roles = table.concat( Flame:GetRoles(), '/')
+    local _, enClass = UnitClass("player")
+    local cnClass = classesCN[enClass:lower()]
+    local level = UnitLevel("player")
+    local msg = level..cnClass..roles
+    return msg
+end
 
 function Flame:PrintAll()
     self:Print('PRINT ALL')
     for k, v in pairs(self.db.profile.dictionary) do
         print (k,v)
     end
-end
-
-Flame.Rows = {}
-function Flame:BuildRow (k, v, parent)
-    local l = AceGUI:Create("SimpleGroup", {})
-    l:SetFullWidth(true) 
-    l:SetLayout('Flow')
-    
-    l.checkBox = AceGUI:Create("CheckBox")
-    l.checkBox:SetWidth (30)
-    l:AddChild(l.checkBox)
-
-    l.inBox = AceGUI:Create("EditBox")
-    l.inBox:SetWidth (120)
-    l.inBox:SetText(k)
-    l:AddChild(l.inBox)
-
-    l.outBox = AceGUI:Create("EditBox")
-    l.outBox:SetWidth (220)
-    l.outBox:SetText(v)
-    l:AddChild(l.outBox)
-
-    if parent then
-        parent:AddChild(l)
-    end
-
-    table.insert(Flame.Rows, l)
-    return l
-end
-
-function Flame:RemoveRows()
-    local removed = {}
-    for i,l in pairs(Flame.Rows) do
-        local checked = l.checkBox:GetValue()
-        if checked then
-            l:ReleaseChildren()
-            local character = l.inBox:GetText()
-            Flame:Remove(character, true)
-            table.insert(removed, i)
-        end
-    end
-    self.mainLayout:DoLayout()
-    for i, v in pairs(removed) do
-        table.remove (Flame.Rows,v)
-    end
-end
-
-function Flame:SaveRows()
-    for i,l in pairs(Flame.Rows) do
-        local k = l.inBox:GetText()
-        local v = l.outBox:GetText()
-        self:Add(k, v, false)
-    end
-end
-
-function Flame:Dict()
-    local frame = AceGUI:Create("Frame")
-    
-    frame:SetTitle("Flame - Dictionary")
-    frame:SetCallback("OnClose", function(widget) AceGUI:Release(widget) end)
-    frame:SetLayout("Flow")
-    frame:SetHeight(600)
-    frame:SetWidth(450)
-
-    local scrollcontainer = AceGUI:Create("SimpleGroup") -- "InlineGroup" is also good
-    scrollcontainer:SetFullWidth(true)
-    scrollcontainer:SetHeight(500)
-    scrollcontainer:SetLayout("Fill")
-
-    frame:AddChild(scrollcontainer)
-
-    Flame.mainLayout = AceGUI:Create("ScrollFrame")
-    Flame.mainLayout:SetLayout("Flow") 
-    scrollcontainer:AddChild(Flame.mainLayout)
-
-    Flame.Rows = {}
-    for k, v in pairs(self.db.profile.dictionary) do
-        local layout = self:BuildRow(k, v, Flame.mainLayout)
-    end
-
-    local buttonAdd = AceGUI:Create("Button")
-    buttonAdd:SetText("Add")
-    buttonAdd:SetWidth(130)
-    buttonAdd:SetCallback("OnClick", function(self) Flame:BuildRow('', '', Flame.mainLayout) end)
-    frame:AddChild(buttonAdd)    
-
-    local buttonRemove = AceGUI:Create("Button")
-    buttonRemove:SetText("Remove")
-    buttonRemove:SetWidth(130)
-    buttonRemove:SetCallback("OnClick", function(self) Flame:RemoveRows() end)
-    frame:AddChild(buttonRemove)
-
-    local buttonSave = AceGUI:Create("Button")
-    buttonSave:SetText("Save")
-    buttonSave:SetWidth(130)
-    buttonSave:SetCallback("OnClick", function(self) Flame:SaveRows() end)
-    frame:AddChild(buttonSave)
-
 end
 
 function Flame:Chat(status)
@@ -448,10 +590,10 @@ function Flame:Remove(character, verbose)
         self:Print('REMOVE', character)
     end
 end
+
 function Flame:ImportData(data)
     local t = StringToTable(data, true)
     for k,v in pairs(t) do self.db.profile.dictionary[k] = v end
-    -- self.db.profile.dictionary = t
     self:Print ('IMPORTED')
     for k,v in pairs(t) do
         print (k,v)
@@ -459,7 +601,9 @@ function Flame:ImportData(data)
 end
 
 function Flame:Import()
-    local frame = AceGUI:Create("Frame")
+    -- callback function
+
+    local frame = AceGUI:Create("Window")
     frame:SetTitle("Flame - Import")
     frame:SetWidth(400)
     frame:SetHeight(200)
@@ -470,7 +614,7 @@ function Flame:Import()
     editbox:SetLabel("Import")
     editbox:SetFullHeight(true)
     editbox:SetFullWidth(true)
-    editbox:SetCallback("OnEnterPressed", function(self) Flame:ImportData(self.editBox:GetText()) end)
+    editbox:SetCallback("OnEnterPressed", function(self) Flame:ImportData(self:GetText()) end)
     frame:AddChild(editbox)
 
     local button = AceGUI:Create("Button")
@@ -482,7 +626,7 @@ end
 function Flame:Export()
     local dictstring = TableToString(self.db.profile.dictionary, true)
 
-    local frame = AceGUI:Create("Frame")
+    local frame = AceGUI:Create("Window")
     frame:SetTitle("Flame - Export")
     frame:SetWidth(400)
     frame:SetHeight(200)
@@ -499,13 +643,11 @@ function Flame:Export()
 
 end
 
-
 SlashCmdList["Flame_Slash_Command"] = Flame.HandleCmd
 SLASH_Flame_Slash_Command1 = "/flame"
 
-
 function Flame:OnInitialize()
-
+    
     -- Default Database 
     local defaults = {
         profile = {
@@ -515,6 +657,8 @@ function Flame:OnInitialize()
             chat = true,
             pinyin = true,
             maxChar = 255,
+            lfgthreshold=60,
+            lfgkeywords = 'LFG,RFC,WC,DM,SFK,BFD,STOCKADES,RFK,GNOMER,RFD,SM,Cathedral,Graveyard,ULDAMAN,ZF,MARAUDON,ST,BRD,SCHOLO,STRAT,LBRS,UBRS,DM',
             questsColor = {1,1,0,1},
             creaturesColor = {0,1,1,1},
             --
@@ -561,6 +705,16 @@ function Flame:OnInitialize()
                         step = 5,
                         set = function(info,val) Flame.db.profile.maxChar = val end,
                         get = function(info) return Flame.db.profile.maxChar end
+                    },
+                    lfgthreshold = {
+                        name = "LFG Spam Threshold",
+                        desc = "Set a time in sec to ignore message from same player",
+                        type = "range",
+                        min = 0,
+                        max = 3600,
+                        step = 60,
+                        set = function(info,val) Flame.db.profile.lfgthreshold = val end,
+                        get = function(info) return Flame.db.profile.lfgthreshold end
                     },
                     questsColor = {
                         name = "Quest color",
@@ -644,48 +798,97 @@ function Flame:OnInitialize()
 end
 
 function Flame:ADDON_LOADED ()
-        for _, t in pairs ({'quests', 'creatures'}) do
-            for k,v in pairs (Flame[t]) do 
-                local color = Flame.db.profile[t..'Color']
-                local hex = format("\124cff%.2x%.2x%.2x", color[1]*255, color[2]*255, color[3]*255) 
-                Flame[t][k]=hex.."["..v.."]|r"
-            end
+    for _, t in pairs ({'quests', 'creatures'}) do
+        for k,v in pairs (Flame[t]) do 
+            local color = Flame.db.profile[t..'Color']
+            local hex = format("\124cff%.2x%.2x%.2x", color[1]*255, color[2]*255, color[3]*255) 
+            Flame[t][k]=hex.."["..v.."]|r"
         end
+    end
 
-        -- Build a single dict
-        local sumTables = {}
-        local sources = {Flame.db.profile.dictionary,Flame.quests,Flame.items, Flame.creatures, Flame.misc}--
-        for _, s in pairs (sources) do 
-            for k,v in pairs(s) do sumTables[k]=v end
-        end
-        Flame.datas = sumTables
+    -- Build a single dict
+    local sumTables = {}
+    local sources = {Flame.db.profile.dictionary,Flame.quests,Flame.items, Flame.creatures, Flame.locations, Flame.misc}--
+    for _, s in pairs (sources) do 
+        for k,v in pairs(s) do sumTables[k]=v end
+    end
+    Flame.datas = sumTables
 
-        -- Create a table by first char
-        local indexTable = {}
-        for cn, en in pairs(Flame.datas) do
-            if strfind(cn, "[\227-\237]") then
-                local cnTbl = UTF8ToCharArray(cn)
-                if indexTable[cnTbl[1]] == nil then
-                        indexTable[cnTbl[1]] = {[cn]=en}
-                else 
-                        indexTable[cnTbl[1]][cn]= en
-                end
-            else
-                if indexTable[cn] == nil then
-                    indexTable[cn] = {[cn]=en}
-                else 
-                    indexTable[cn][cn]= en
-                end 
+    -- Create a table by first char
+    local indexTable = {}
+    for cn, en in pairs(Flame.datas) do
+        if strfind(cn, "[\227-\237]") then
+            local cnTbl = UTF8ToArray(cn)
+            if indexTable[cnTbl[1]] == nil then
+                    indexTable[cnTbl[1]] = {[cn]=en}
+            else 
+                    indexTable[cnTbl[1]][cn]= en
             end
+        else
+            if indexTable[cn] == nil then
+                indexTable[cn] = {[cn]=en}
+            else 
+                indexTable[cn][cn]= en
+            end 
         end
-        Flame.indexTable = indexTable
+    end
+    Flame.indexTable = indexTable
 end
 
+function Flame:FilterLFG(guid, channelName, originalText, translatedText, onlyChanged)
+    local keyCheck = false
+    local keys = {}
+    for kw in string.gmatch(self.db.profile.lfgkeywords, '([^,]+)') do
+        table.insert (keys, kw)
+    end
+    for _,k in pairs (keys) do
+        if string.match(translatedText, k) then
+            keyCheck=true
+            break
+        end
+    end
+    if keyCheck then
+        local _, englishClass, _, _, _, playerName, _ = GetPlayerInfoByGUID(guid)
+
+        local msgTbl = {timestamp=GetTime(),translation=translatedText, onlyChanged=onlyChanged, original=originalText, channel=channelName}
+        local checkSpam = true
+        local threshold = 60
+        if Flame.messageHistory[playerName] then
+            local pmh = Flame.messageHistory[playerName]
+            table.insert(pmh, msgTbl)
+            local elapseSinceLast = pmh[#pmh].timestamp - pmh[#pmh-1].timestamp
+            if elapseSinceLast < threshold then
+                checkSpam=false
+            end
+        else
+            self.messageHistory[playerName] = {msgTbl}
+        end
+        
+
+        if checkSpam then
+            local keywords = {}
+            local keys = {}
+            for kw in string.gmatch(self.db.profile.lfgkeywords, '([^,]+)') do
+                table.insert (keys, kw)
+            end
+            for _,k in pairs (keys) do
+                if string.match(msgTbl.translation, k) then
+                    table.insert(keywords, k)
+                end
+            end
+            local keywordsTxt = table.concat(keywords,", ")
+            self.TableWidgetLFG:AddRow(playerName, englishClass, keywordsTxt, onlyChanged)
+        end
+    end
+end
 
 --event, text, playerName, languageName, channelName, playerName2, specialFlags, zoneChannelID, channelIndex, channelBaseName, unused, lineID, guid, bnSenderID, isMobile, isSubtitle, hideSenderInLetterbox, supressRaidIcons
-function Flame:CHAT_MSG_CHANNEL (event, text, ...)
+function Flame:CHAT_MSG_CHANNEL (event, text, _, _, channelName, _, _, _, _, _, _, _, guid)
     if Flame.db.profile.channel then
-        self:Translate(text)
+        local translatedText, onlyChanged = self:Translate(text)
+        if self.statusLFGWindow then
+            Flame:FilterLFG(guid, channelName, text, translatedText, onlyChanged)
+        end
     end
 end
 function Flame:CHAT_MSG_PARTY (event, text, ...)
